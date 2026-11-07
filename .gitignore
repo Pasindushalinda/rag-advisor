@@ -1,0 +1,49 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.py[cod]
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+
+# Virtual environments
+.venv
+
+.env
+
+n8n-runner/
+qdrant_data/
+data/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Test coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Editors and IDEs
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+log.txt
+logs.txt
+
+# Terraform: state contains secrets (API keys), never commit it
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+infra/tfplan
+!infra/terraform.tfvars.example

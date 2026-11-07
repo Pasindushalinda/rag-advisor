@@ -1,0 +1,15 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "investor_advisor": "./graphs/investor_advisor/investor_advisor.py:make_graph"
+  },
+  "auth": {
+    "path": "./auth.py:auth"
+  },
+  "http": {
+    "app": "./api/main.py:app",
+    "enable_custom_route_auth": true
+  }
+}
