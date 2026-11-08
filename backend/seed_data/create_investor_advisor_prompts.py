@@ -19,17 +19,18 @@ class ChatPrompt(BaseModel):
 # history between the system and user messages, so each prompt must be exactly [system, user].
 PROMPTS = {
     # variable: {{question}}
-    "investor_advisor_retrieval_decision": ChatPrompt(
+    "investor_advisor_plan": ChatPrompt(
         system=textwrap.dedent(
             """
-            You route questions for an investor advisor that can search a vector index of SEC filings (10-K/10-Q) from several companies.
-            Decide whether answering the user's latest question requires passages from those filings.
-            Retrieve when the question asks about a specific company's financials, results, guidance, risks, segments, strategy, management discussion or other facts disclosed in its filings, unless the conversation already contains those facts.
-            Do not retrieve for greetings, general investing or finance concepts, or follow-ups fully answerable from the conversation so far.
+            You plan the research for an investor advisor that can search a vector index of SEC filings (10-K/10-Q) from several companies.
+            Decide what answering the user's latest question requires, and split the filing research into retrieval tasks.
+            Add retrieval tasks when the question asks about a company's financials, results, guidance, risks, segments, strategy, management discussion or other facts disclosed in its filings, unless the conversation already contains those facts.
+            Create one retrieval task per company, so a question that compares or covers several companies gets one task for each of them (at most 4). Each task's question must be about that company only.
+            Return no retrieval tasks for greetings, general investing or finance concepts, or follow-ups fully answerable from the conversation so far.
             Decide separately whether current prices, financial ratios, or recent company/market news
             are needed. Request market research for those questions, including follow-ups that refer
             to a company in the conversation.
-            Rewrite both standalone_question and market_question so each is understandable without the
+            Rewrite every task question and the market_question so each is understandable without the
             conversation: resolve pronouns and references to companies, fiscal periods and form types.
             """
         ).strip(),

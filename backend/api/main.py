@@ -33,10 +33,14 @@ from api.openai_models import (
 )
 from auth import ADMIN_PERMISSION
 from graphs.ingestion.ingestion import ingest
-from graphs.investor_advisor.investor_advisor import State, make_graph
+from graphs.investor_advisor.investor_advisor import (
+    RetrievalBatch,
+    State,
+    make_graph,
+)
 from graphs.market_research_agent.output import MarketResults
 from shared.config import get_settings
-from shared.models import IngestionRequest, RetrievalDecision, RetrievedChunk
+from shared.models import IngestionRequest, Plan
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +66,8 @@ class NodeUpdate(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    decision: RetrievalDecision | None = None
-    chunks: list[RetrievedChunk] | None = None
+    plan: Plan | None = None
+    batches: list[RetrievalBatch] | None = None
     market_data: MarketResults | None = None
     messages: list[AnyMessage] | None = None
 
@@ -94,20 +98,20 @@ def _to_langchain(messages: list[ChatMessage]) -> list[AnyMessage]:
 
 
 def _describe(node: str, update: NodeUpdate) -> Step | None:
-    if node == "decide" and update.decision is not None:
-        d = update.decision
+    if node == "plan" and update.plan is not None:
+        p = update.plan
         label = (
-            "Filing lookup needed" if d.needs_retrieval else "No filing lookup needed"
+            "Filing lookup needed" if p.needs_retrieval else "No filing lookup needed"
         )
-        search = (
-            f" Search question: {d.standalone_question}" if d.needs_retrieval else ""
-        )
-        return Step(kind="reasoning", text=f"{label}. {d.reason}{search}\n\n")
-    if node == "retrieve" and update.chunks is not None:
-        n = len(update.chunks)
+        searches = "".join(f"\n- {t.company}: {t.question}" for t in p.retrieval_tasks)
+        return Step(kind="reasoning", text=f"{label}. {p.reason}{searches}\n\n")
+    if node == "retrieve" and update.batches:
+        # one update event per retrieve worker, i.e. per company
+        batch = update.batches[-1]
+        n = len(batch.chunks)
         return Step(
             kind="reasoning",
-            text=f"Found {n} filing excerpt{'' if n == 1 else 's'}.\n\n",
+            text=f"Found {n} filing excerpt{'' if n == 1 else 's'} for {batch.company}.\n\n",
         )
     if node == "market_research" and update.market_data is not None:
         n = len(update.market_data.news) + len(update.market_data.facts)
