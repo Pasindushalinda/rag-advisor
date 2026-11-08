@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: ask a question",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/debug_run.py",
+      "args": ["${input:question}"],
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Debug: Apple risk factors",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/debug_run.py",
+      "args": ["how is apple's risk factor?"],
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Debug: Apple share price",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/debug_run.py",
+      "args": ["how is apple's share price?"],
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "question",
+      "type": "promptString",
+      "description": "Question for the investor advisor",
+      "default": "how is apple's share price?"
+    }
+  ]
+}
