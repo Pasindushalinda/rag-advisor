@@ -21,6 +21,12 @@ from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
+from graphs.investor_advisor.planner import (
+    PLANNER_PROMPT_NAME,
+    create_plan,
+    list_filings,
+    plan_to_decision,
+)
 from graphs.market_research_agent.graph import build_graph as build_market_graph
 from graphs.market_research_agent.output import MarketResults, format_market_facts, market_results
 from graphs.market_research_agent.state import AgentState as MarketState
@@ -109,6 +115,28 @@ def decide(state: State) -> State:
     # chunks/answer persist in the thread checkpoint, so clear the previous turn's values
     return state.model_copy(
         update={"decision": decision, "chunks": [], "market_data": None, "answer": None}
+    )
+
+
+def planner(state: State, config: RunnableConfig) -> State:
+    history, question = _split_conversation(state.messages)
+    # list_filings uses @observe; parenting it on this node's span avoids an orphan trace
+    trace_id, observation_id = _langfuse_parent(config)
+    filings = list_filings(
+        langfuse_parent_trace_id=trace_id,
+        langfuse_parent_observation_id=observation_id,
+    )
+    plan = create_plan(
+        _chat_model(), _chat_prompt(PLANNER_PROMPT_NAME), history, question, filings
+    )
+    # same per-turn reset as decide: checkpointed values from the previous turn must not leak
+    return state.model_copy(
+        update={
+            "decision": plan_to_decision(plan),
+            "chunks": [],
+            "market_data": None,
+            "answer": None,
+        }
     )
 
 
@@ -219,12 +247,12 @@ def answer(state: State) -> State:
 
 def build_graph() -> CompiledStateGraph:  # type: ignore[type-arg]  # langgraph generics are unwieldy
     g = StateGraph(State)
-    g.add_node("decide", decide)
+    g.add_node("planner", planner)
     g.add_node("retrieve", retrieve)
     g.add_node("market_research", market_research)
     g.add_node("answer", answer)
-    g.add_edge(START, "decide")
-    g.add_conditional_edges("decide", route_after_decide, ["retrieve", "market_research"])
+    g.add_edge(START, "planner")
+    g.add_conditional_edges("planner", route_after_decide, ["retrieve", "market_research"])
     g.add_edge("retrieve", "market_research")
     g.add_edge("market_research", "answer")
     g.add_edge("answer", END)

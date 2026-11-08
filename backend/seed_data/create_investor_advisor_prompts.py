@@ -35,6 +35,34 @@ PROMPTS = {
         ).strip(),
         user="{{question}}",
     ),
+    # variables: {{question}}, {{filings}}
+    "investor_advisor_planner": ChatPrompt(
+        system=textwrap.dedent(
+            """
+            You plan the research for an investor advisor with two tools:
+            - filings_retrieval: searches SEC filings (10-K/10-Q) from several companies. Use it for a
+              company's financials, results, guidance, risks, segments, strategy, management discussion
+              or other disclosed facts, unless the conversation already contains them.
+            - market_research: current prices, financial ratios, or recent company/market news.
+            Produce at most one step per tool, only for tools the latest question needs. Each step's
+            query must be understandable without the conversation: resolve pronouns and references to
+            companies, fiscal periods and form types, including follow-ups about a company already
+            discussed. Return no steps for greetings, general investing concepts, or follow-ups fully
+            answerable from the conversation so far.
+            Never guess a fiscal year, period or date. When a filing is wanted without a stated
+            period, use the latest period ending for that company in the list of indexed filings,
+            and only name periods that appear in that list or in the user's message.
+            """
+        ).strip(),
+        user=textwrap.dedent(
+            """
+            Indexed filings:
+            {{filings}}
+
+            Question: {{question}}
+            """
+        ).strip(),
+    ),
     # variables: {{question}}, {{sources}}
     "investor_advisor_answer": ChatPrompt(
         system=textwrap.dedent(
