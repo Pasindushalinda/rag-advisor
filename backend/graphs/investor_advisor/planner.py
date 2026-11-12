@@ -125,7 +125,7 @@ def create_plan(
 ) -> Plan:
     structured = llm.with_structured_output(Plan, method="json_schema")
     # model_validate re-checks the output; a ValidationError fails the node on purpose.
-    return Plan.model_validate(
+    plan = Plan.model_validate(
         (prompt | structured).invoke(
             {
                 "history": history,
@@ -134,6 +134,8 @@ def create_plan(
             }
         )
     )
+    print(plan.model_dump_json(indent=2))  # debug: show the planner's raw output
+    return plan
 
 
 def plan_to_decision(plan: Plan) -> RetrievalDecision:

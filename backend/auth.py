@@ -35,7 +35,11 @@ def _unauthorized(detail: str) -> Auth.exceptions.HTTPException:
 async def authenticate(headers: dict[str, str]) -> dict[str, object]:
     lowered = {k.lower(): v for k, v in headers.items()}
     scheme, _, token = lowered.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    if scheme.lower() != "bearer":
+        token = ""
+    # Agent Chat UI (LangGraph SDK) sends its key as X-Api-Key, not as a bearer token, so accept both.
+    token = token or lowered.get("x-api-key", "")
+    if not token:
         raise _unauthorized("Missing bearer token")
 
     settings = get_settings()
