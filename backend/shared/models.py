@@ -1,4 +1,10 @@
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+SEC_FILING_URL_FORMAT = "https://www.sec.gov/Archives/edgar/data/"
+SEC_FILING_URL_PATH_PREFIX = "/Archives/edgar/data/"
 
 
 class IngestionRequest(BaseModel):
@@ -6,6 +12,56 @@ class IngestionRequest(BaseModel):
     company: str
     form_type: str
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_sec_filing_url(cls, value: str) -> str:
+        parsed_url = urlsplit(value)
+        if (
+            parsed_url.scheme.lower() != "https"
+            or parsed_url.netloc.lower() != "www.sec.gov"
+            or not parsed_url.path.startswith(SEC_FILING_URL_PATH_PREFIX)
+            or len(parsed_url.path) <= len(SEC_FILING_URL_PATH_PREFIX)
+        ):
+            raise ValueError(f"Invalid SEC filing URL. It must start with: {SEC_FILING_URL_FORMAT}")
+        return value
+
+
+class IngestionJob(BaseModel):
+    """Status of a background ingestion run, as returned by the /ingest endpoints."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    ticker: str
+    company: str
+    status: Literal["pending", "done", "failed"]
+    progress: int = Field(default=0, ge=0, le=100)
+    message: str | None = None
+
+
+class IndexedFilingPayload(BaseModel):
+    """The Qdrant point payload fields needed to identify an indexed filing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ticker: str
+    company: str
+    form_type: str
+    period_end: str
+    file: str
+
+
+class IndexedAnnualFiling(BaseModel):
+    """One 10-K already indexed in Qdrant."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    company: str
+    year: int
+    period_end: str
+    file: str
 
 
 class QueryRewrite(BaseModel):
@@ -38,6 +94,7 @@ class RetrievalResult(BaseModel):
     rewrite: QueryRewrite
     chunks: list[RetrievedChunk]
 
+
 class RetrievalDecision(BaseModel):
     """LLM output: whether answering the latest question needs SEC filing passages."""
 
@@ -67,7 +124,10 @@ class AdvisorLLMAnswer(BaseModel):
         description="Answer to the investor's question; cite sources inline as [n]"
     )
     sources: list[int] = Field(
-        description="Numbers n of the provided numbered SEC filing excerpts cited in the answer; empty if none were used. Never list market research items<<CUT_OFF_IN_PHOTO>>"
+        description=(
+            "Numbers n of the provided numbered SEC filing excerpts cited in the answer; "
+            "empty if none were used. Never list market research items here"
+        )
     )
 
 

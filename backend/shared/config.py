@@ -16,17 +16,17 @@ class Settings(BaseSettings):
 
     # Model names are the provider's *deployment* names (infra/main.tf names them "embedding" and "chat").
     embedding_model_endpoint: str = ""
-    embedding_model_api_key: str = ""
+    embedding_model_api_key: SecretStr
     embedding_model_name: str = "embedding"
     chat_model_endpoint: str = ""
-    chat_model_api_key: str = ""
+    chat_model_api_key: SecretStr
     chat_model_name: str = "chat"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_timeout: int = 60  # hosted instance cold-starts; the client default (5s) times out
     qdrant_collection: str = "filings"
-    service_api_key: str = ""
-    admin_api_key: str = ""
+    service_api_key: SecretStr | None = None
+    admin_api_key: SecretStr | None = None
 
     llm_provider: str = "nvidia"
     llm_model: str | None = None

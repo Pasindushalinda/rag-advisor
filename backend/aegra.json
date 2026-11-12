@@ -10,6 +10,9 @@
   },
   "http": {
     "app": "./api/main.py:app",
-    "enable_custom_route_auth": true
+    "enable_custom_route_auth": true,
+    "cors": {
+      "allow_origins": ["http://localhost:3002"]
+    }
   }
 }

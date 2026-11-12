@@ -6,9 +6,6 @@ The rewrite prompt is pulled from Langfuse (seed it with seed_data/create_retrie
 Traced in Langfuse as one trace per retrieval with a span per step.
 """
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langfuse import Langfuse
 from langfuse.decorators import langfuse_context, observe
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -17,12 +14,13 @@ from qdrant_client import QdrantClient
 
 from shared.compat import install_shims
 from shared.config import get_settings
+from shared.llms import get_chat_model, get_embedding_model
 from shared.models import QueryRewrite, RetrievalResult, RetrievedChunk
+from shared.prompts import PromptName, get_prompt
 
 install_shims()  # langfuse's LangChain handler imports pre-1.0 langchain paths
 
 DEFAULT_TOP_K = 5
-REWRITE_PROMPT_NAME = "retriever_query_rewrite"
 
 
 class State(BaseModel):
@@ -34,18 +32,8 @@ class State(BaseModel):
 
 @observe(capture_input=False, capture_output=False)
 def rewrite_query(state: State) -> State:
-    cfg = get_settings()
-    lf_prompt = Langfuse().get_prompt(REWRITE_PROMPT_NAME, label="latest", type="chat")
-    # the langfuse_prompt metadata links the generation to the prompt version in Langfuse
-    prompt = ChatPromptTemplate.from_messages(lf_prompt.get_langchain_prompt())
-    prompt.metadata = {"langfuse_prompt": lf_prompt}
-    llm = ChatOpenAI(
-        model=cfg.chat_model_name,
-        base_url=cfg.chat_model_endpoint,
-        api_key=cfg.chat_model_api_key,  # type: ignore[arg-type]  # str accepted at runtime
-        max_retries=6,
-        timeout=120,
-    ).with_structured_output(QueryRewrite, method="json_schema")
+    prompt = get_prompt(PromptName.RETRIEVER_QUERY_REWRITE)
+    llm = get_chat_model().with_structured_output(QueryRewrite, method="json_schema")
     rewrite = QueryRewrite.model_validate(
         (prompt | llm).invoke({"question": state.question})
     )
@@ -60,13 +48,7 @@ def search(state: State) -> State:
     cfg = get_settings()
     rewrite = state.rewrite
     assert rewrite is not None  # set by rewrite_query
-    embeddings = OpenAIEmbeddings(
-        model=cfg.embedding_model_name,
-        base_url=cfg.embedding_model_endpoint,
-        api_key=cfg.embedding_model_api_key,  # type: ignore[arg-type]  # str accepted at runtime
-        check_embedding_ctx_length=False,  # send raw strings; the service does the truncation checks
-        max_retries=6,
-    )
+    embeddings = get_embedding_model()
     vector = embeddings.embed_query(rewrite.search_query)
 
     client = QdrantClient(

@@ -12,25 +12,28 @@ turns the filing's bold-span "headings" into real <h1>-<h4> tags so it can work.
 import re
 import uuid
 import warnings
+from collections.abc import Callable, Iterator
 from datetime import datetime
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import httpx
 from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import HTMLSemanticPreservingSplitter
 from langfuse.decorators import langfuse_context, observe
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from qdrant_client import QdrantClient, models
 
 from shared.config import get_settings
+from shared.llms import get_embedding_model
 from shared.models import IngestionRequest
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 USER_AGENT = "Practice RAG research bd738ft@example.com"  # SEC requires a contact UA
 EMBED_BATCH_SIZE = 16  # 16 x ~800 tokens must fit the embedding deployment's tokens-per-minute quota
+ProgressCallback = Callable[[int], None]
 
 MAX_CHUNK_SIZE = 3200  # ~800 tokens
 CHUNK_OVERLAP = 300
@@ -55,9 +58,9 @@ HEADERS = [("h1", "part"), ("h2", "item"), ("h3", "section"), ("h4", "subsection
 class State(TypedDict, total=False):
     filing: IngestionRequest
     html: str
-    meta: dict
+    meta: dict[str, str]
     clean_html: str
-    chunks: list[dict]
+    chunks: list[dict[str, str | int]]
 
 
 def clean(text: str) -> str:
@@ -69,7 +72,7 @@ def is_bold(tag: Tag) -> bool:
     return bool(spans) and all(BOLD_RE.search(s.get("style") or "") for s in spans)
 
 
-def blocks(el: Tag):
+def blocks(el: Tag) -> Iterator[Tag]:
     """Yield leaf blocks, descending into page-container divs (one div per page, p children)."""
     for c in el.find_all(True, recursive=False):
         if (
@@ -174,6 +177,7 @@ def normalize(state: State) -> State:
     path: list[
         str
     ] = []  # heading text carries its full ancestry; the splitter drops empty parents
+    assert soup.body is not None  # lxml always creates a body element
     for el in list(blocks(soup.body)):
         text = clean(el.get_text(" "))
         has_table = el.find("table") is not None
@@ -277,7 +281,7 @@ def split(state: State) -> State:
             nxt.page_content = d.page_content + "\n\n" + nxt.page_content
             del merged[i]
 
-    chunks: list[dict] = []
+    chunks: list[dict[str, str | int]] = []
     for d in merged:
         section_path = next(
             (d.metadata[k] for _, k in reversed(HEADERS) if d.metadata.get(k)), ""
@@ -318,16 +322,10 @@ def split(state: State) -> State:
 
 
 @observe(capture_input=False, capture_output=False)
-def store(state: State) -> State:
+def store(state: State, progress_callback: ProgressCallback | None = None) -> State:
     cfg = get_settings()
     chunks = state["chunks"]
-    embeddings = OpenAIEmbeddings(
-        model=cfg.embedding_model_name,
-        base_url=cfg.embedding_model_endpoint,
-        api_key=cfg.embedding_model_api_key,  # type: ignore[arg-type]  # str accepted at runtime
-        check_embedding_ctx_length=False,  # send raw strings; the service does the truncation checks
-        max_retries=6,  # the embedding deployment's call-rate limit returns 429s during bulk ingestion
-    )
+    embeddings = get_embedding_model()
     client = QdrantClient(
         url=cfg.qdrant_url,
         # Without port=None the client appends :6333 to portless (hosted https) URLs.
@@ -337,7 +335,7 @@ def store(state: State) -> State:
     )
     for i in range(0, len(chunks), EMBED_BATCH_SIZE):
         batch = chunks[i : i + EMBED_BATCH_SIZE]
-        vectors = embeddings.embed_documents([c["data"] for c in batch])
+        vectors = embeddings.embed_documents([str(c["data"]) for c in batch])
         if i == 0 and not client.collection_exists(cfg.qdrant_collection):
             client.create_collection(
                 cfg.qdrant_collection,
@@ -356,25 +354,55 @@ def store(state: State) -> State:
                     vector=v,
                     payload=c,
                 )
-                for c, v in zip(batch, vectors)
+                for c, v in zip(batch, vectors, strict=False)
             ],
         )
+        if progress_callback is not None:
+            processed = min(i + len(batch), len(chunks))
+            progress_callback(50 + 45 * processed // max(len(chunks), 1))
+    if not chunks and progress_callback is not None:
+        progress_callback(95)
     langfuse_context.update_current_observation(
         input={"chunks": len(chunks)}, output={"collection": cfg.qdrant_collection}
     )
     return {}
 
 
-def build_graph(store_chunks: bool = True):
+def build_graph(
+    store_chunks: bool = True,
+    progress_callback: ProgressCallback | None = None,
+) -> CompiledStateGraph[State, None, State, State]:
     g = StateGraph(State)
-    g.add_node("fetch", fetch)
-    g.add_node("normalize", normalize)
-    g.add_node("split", split)
+
+    def fetch_step(state: State) -> State:
+        result = cast(State, fetch(state))
+        if progress_callback is not None:
+            progress_callback(15)
+        return result
+
+    def normalize_step(state: State) -> State:
+        result = cast(State, normalize(state))
+        if progress_callback is not None:
+            progress_callback(35)
+        return result
+
+    def split_step(state: State) -> State:
+        result = cast(State, split(state))
+        if progress_callback is not None:
+            progress_callback(50)
+        return result
+
+    def store_step(state: State) -> State:
+        return cast(State, store(state, progress_callback))
+
+    g.add_node("fetch", fetch_step)
+    g.add_node("normalize", normalize_step)
+    g.add_node("split", split_step)
     g.add_edge(START, "fetch")
     g.add_edge("fetch", "normalize")
     g.add_edge("normalize", "split")
     if store_chunks:
-        g.add_node("store", store)
+        g.add_node("store", store_step)
         g.add_edge("split", "store")
         g.add_edge("store", END)
     else:
@@ -383,7 +411,11 @@ def build_graph(store_chunks: bool = True):
 
 
 @observe(name="ingestion", capture_output=False)
-def ingest(filing: IngestionRequest, store_chunks: bool = True) -> list[dict]:
+def ingest(
+    filing: IngestionRequest,
+    store_chunks: bool = True,
+    progress_callback: ProgressCallback | None = None,
+) -> list[dict[str, str | int]]:
     """Run one ingestion for a single filing record; returns the chunks.
 
     Set store_chunks=False to skip the Qdrant node (e.g. in experiments).
@@ -395,8 +427,10 @@ def ingest(filing: IngestionRequest, store_chunks: bool = True) -> list[dict]:
         tags=["ingestion", filing.ticker],
         metadata={"file": file},
     )
-    result = build_graph(store_chunks).invoke({"filing": filing})
-    chunks = result["chunks"]
+    if progress_callback is not None:
+        progress_callback(5)
+    result = build_graph(store_chunks, progress_callback).invoke({"filing": filing})
+    chunks: list[dict[str, str | int]] = result["chunks"]
     langfuse_context.update_current_observation(
         output={
             "chunks": len(chunks),

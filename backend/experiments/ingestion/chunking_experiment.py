@@ -15,15 +15,15 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from langfuse import Langfuse
 from langfuse.decorators import langfuse_context
 from pydantic import BaseModel, Field
 
 from graphs.ingestion import CHUNK_OVERLAP, MAX_CHUNK_SIZE, ingest
 from shared.config import get_settings
+from shared.llms import get_chat_model
 from shared.models import IngestionRequest
+from shared.prompts import PromptName, get_prompt
 
 DATASET = "ingestion-test-data"
 JUDGE_CONCURRENCY = 2  # the Azure chat deployment's quota rate-limits higher concurrency
@@ -31,10 +31,10 @@ SAMPLE_SIZE = 10  # 0 = judge every chunk
 PASS_THRESHOLD = 0.8
 MAX_JUDGE_CHARS = 8000
 
-# Chat prompts in Langfuse (see seed_prompts.py); variables: {{chunk}}, plus {{expected}} for has_company_period_form
+# Criterion -> Langfuse chat prompt; variables: {{chunk}}, plus {{expected}} for has_company_period_form
 PROMPT_NAMES = {
-    "self_contained": "chunk_judge_self_contained_prompt",
-    "has_company_period_form": "chunk_judge_expected_details",
+    "self_contained": PromptName.CHUNK_JUDGE_SELF_CONTAINED,
+    "has_company_period_form": PromptName.CHUNK_JUDGE_EXPECTED_DETAILS,
 }
 
 
@@ -46,34 +46,28 @@ class Verdict(BaseModel):
 settings = get_settings()
 JUDGE_MODEL = settings.chat_model_name
 langfuse = Langfuse()
-judge = ChatOpenAI(
-    model=JUDGE_MODEL,
-    base_url=settings.chat_model_endpoint,
-    api_key=settings.chat_model_api_key,  # type: ignore[arg-type]  # str accepted at runtime
-    max_tokens=8192,
-    max_retries=6,
-    timeout=120,
-).with_structured_output(Verdict, method="json_schema", include_raw=True)
+judge = get_chat_model(max_tokens=8192).with_structured_output(
+    Verdict, method="json_schema", include_raw=True
+)
 
-lf_prompts = {
-    c: langfuse.get_prompt(n, label="latest", type="chat")
-    for c, n in PROMPT_NAMES.items()
-}
-templates = {
-    c: ChatPromptTemplate.from_messages(p.get_langchain_prompt())
-    for c, p in lf_prompts.items()
-}
+templates = {c: get_prompt(n) for c, n in PROMPT_NAMES.items()}
 
 
-def judge_chunk(trace_id: str, criterion: str, chunk: dict, expected: dict) -> dict:
-    messages = templates[criterion].format_messages(
-        chunk=chunk["data"][:MAX_JUDGE_CHARS], expected=json.dumps(expected)
+def judge_chunk(
+    trace_id: str,
+    criterion: str,
+    chunk: dict[str, str | int],
+    expected: dict[str, str | None],
+) -> dict[str, str | int | bool]:
+    template = templates[criterion]
+    messages = template.format_messages(
+        chunk=str(chunk["data"])[:MAX_JUDGE_CHARS], expected=json.dumps(expected)
     )
     gen = langfuse.generation(
         trace_id=trace_id,
         name=f"judge-{criterion}",
         model=JUDGE_MODEL,
-        prompt=lf_prompts[criterion],
+        prompt=(template.metadata or {})["langfuse_prompt"],
         input=[{"role": m.type, "content": m.content} for m in messages],
         metadata={"chunk_num": chunk["chunk_num"], "file": chunk["file"]},
     )
@@ -101,12 +95,12 @@ def judge_chunk(trace_id: str, criterion: str, chunk: dict, expected: dict) -> d
 
 
 def evaluate(
-    item_input: dict,
-    expected: dict,
-    chunks: list[dict],
+    item_input: dict[str, str],
+    expected: dict[str, str],
+    chunks: list[dict[str, str | int]],
     ingestion_trace_id: str,
     run_name: str,
-) -> tuple[dict[str, float], list[dict]]:
+) -> tuple[dict[str, float], list[dict[str, str | int | bool]]]:
     sample = chunks
     if SAMPLE_SIZE and len(chunks) > SAMPLE_SIZE:
         sample = random.Random(expected.get("file") or item_input["url"]).sample(
@@ -163,7 +157,7 @@ def main() -> int:
         f"Experiment run '{run_name}' on dataset '{DATASET}' ({len(dataset.items)} items)"
     )
 
-    all_results: list[dict] = []
+    all_results: list[dict[str, str | int | bool]] = []
     for item in dataset.items:
         with item.observe(
             run_name=run_name,

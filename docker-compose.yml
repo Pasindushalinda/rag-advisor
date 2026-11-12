@@ -3,6 +3,8 @@ services:
     image: qdrant/qdrant:latest
     restart: always
     container_name: rag-qdrant
+    # api uses the central Azure Qdrant/Langfuse (QDRANT_URL / LANGFUSE_HOST in backend/.env); local copies are opt-in
+    profiles: ["local"]
     ports:
       - 6333:6333
       - 6334:6334
@@ -19,6 +21,7 @@ services:
   langfuse-db:
     image: postgres:16-alpine
     container_name: rag-langfuse-db
+    profiles: ["local"]
     restart: always
     environment:
       POSTGRES_USER: postgres
@@ -35,6 +38,7 @@ services:
   langfuse:
     image: langfuse/langfuse:2
     container_name: rag-langfuse
+    profiles: ["local"]
     restart: always
     depends_on:
       langfuse-db:
@@ -78,13 +82,16 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # local runs only: trusts the Zscaler CA in certs/; set INSTALL_CA_CERTS=false when not behind Zscaler
+        INSTALL_CA_CERTS: ${INSTALL_CA_CERTS:-true}
+      additional_contexts:
+        certs: ./certs
     container_name: rag-api
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
-      LANGFUSE_HOST: http://langfuse:3000
-      QDRANT_URL: http://qdrant:6333
       POSTGRES_HOST: aegra-db
       POSTGRES_PORT: "5432"
       REDIS_BROKER_ENABLED: "true"
@@ -96,43 +103,21 @@ services:
         condition: service_healthy
       aegra-redis:
         condition: service_healthy
-      qdrant:
-        condition: service_started
-      langfuse:
-        condition: service_started
 
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.12.5
-    container_name: rag-open-webui
+  agent-chat-ui:
+    build:
+      context: ./chat-ui
+      args:
+        # local runs only: trusts the Zscaler CA in certs/; set INSTALL_CA_CERTS=false when not behind Zscaler
+        INSTALL_CA_CERTS: ${INSTALL_CA_CERTS:-true}
+      additional_contexts:
+        certs: ./certs
+    container_name: rag-agent-chat-ui
     restart: unless-stopped
-    environment:
-      OPENAI_API_BASE_URL: http://api:8000/v1
-      OPENAI_API_KEY: ${SERVICE_API_KEY:?set SERVICE_API_KEY in .env}
-      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}
-      # signup is off, so the first admin must be seeded; only applies while no users exist
-      WEBUI_ADMIN_EMAIL: ${WEBUI_ADMIN_EMAIL:?set WEBUI_ADMIN_EMAIL in .env}
-      WEBUI_ADMIN_PASSWORD: ${WEBUI_ADMIN_PASSWORD:?set WEBUI_ADMIN_PASSWORD in .env}
-      WEBUI_ADMIN_NAME: ${WEBUI_ADMIN_NAME:-Admin}
-      ENABLE_OLLAMA_API: "false"
-      # sends X-OpenWebUI-User-Id/Chat-Id so the backend can attribute traces to users
-      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
-      ENABLE_SIGNUP: "false"
-      DEFAULT_USER_ROLE: pending
-      # env wins over settings saved in the UI, so the lockdown below cannot be undone there
-      ENABLE_PERSISTENT_CONFIG: "false"
-      # background title/tag/follow-up calls would each hit the advisor graph and the LLM
-      ENABLE_TITLE_GENERATION: "false"
-      ENABLE_TAGS_GENERATION: "false"
-      ENABLE_FOLLOW_UP_GENERATION: "false"
-      ENABLE_AUTOCOMPLETE_GENERATION: "false"
-      # keep answers grounded in the filings pipeline only
-      ENABLE_WEB_SEARCH: "false"
-      ENABLE_CODE_EXECUTION: "false"
-      ENABLE_COMMUNITY_SHARING: "false"
-    volumes:
-      - open_webui_data:/app/backend/data
+    # No server-side key: the UI shows its setup form and the user pastes the API key, which the browser
+    # sends straight to Aegra (CORS allows this origin in backend/aegra.json). Aegra validates the key.
     ports:
-      - "127.0.0.1:3002:8080"
+      - "127.0.0.1:3002:3000"
     depends_on:
       - api
 
@@ -144,4 +129,3 @@ configs:
 volumes:
   langfuse_db_data:
   aegra_db_data:
-  open_webui_data:

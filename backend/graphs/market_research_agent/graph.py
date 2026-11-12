@@ -7,14 +7,13 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from graphs.market_research_agent import nodes
-from graphs.market_research_agent.llm import get_chat_model
 from graphs.market_research_agent.state import AgentState
 from graphs.market_research_agent.tools import TOOLS
-from shared.config import Settings
+from shared.llms import get_chat_model
 
 
-def build_graph(settings: Settings) -> CompiledStateGraph[AgentState]:
-    model = get_chat_model(settings).bind_tools(TOOLS)
+def build_graph() -> CompiledStateGraph[AgentState]:
+    model = get_chat_model().bind_tools(TOOLS)
 
     g = StateGraph(AgentState)
     g.add_node("agent", partial(nodes.agent, model=model))

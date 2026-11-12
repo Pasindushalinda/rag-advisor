@@ -12,21 +12,15 @@ import math
 import sys
 from datetime import datetime
 
-from shared.compat import install_shims
-
-install_shims()  # must run before langfuse's LangChain handler and ragas are imported
-
-from langchain_openai import ChatOpenAI
+from langchain_core.callbacks import BaseCallbackHandler
 from langfuse import Langfuse
-from langfuse.callback import CallbackHandler
 from langfuse.decorators import langfuse_context
 from pydantic import BaseModel, ConfigDict
-from ragas.dataset_schema import SingleTurnSample
-from ragas.llms import LangchainLLMWrapper
-from ragas.metrics import LLMContextPrecisionWithReference, LLMContextRecall
 
 from graphs.retriever import DEFAULT_TOP_K, retrieve
+from shared.compat import install_shims
 from shared.config import get_settings
+from shared.llms import get_chat_model
 from shared.models import RetrievalResult
 
 DATASET = "retrieval-test-data"
@@ -54,49 +48,42 @@ class Scores(BaseModel):
 
 
 settings = get_settings()
-judge = LangchainLLMWrapper(
-    ChatOpenAI(
-        model=settings.chat_model_name,
-        base_url=settings.chat_model_endpoint,
-        api_key=settings.chat_model_api_key,  # type: ignore[arg-type]  # str accepted at runtime
-        max_retries=6,
-        timeout=120,
-    )
-)
-precision_metric = LLMContextPrecisionWithReference(llm=judge)
-recall_metric = LLMContextRecall(llm=judge)
-
-
-async def ragas_scores(
-    result: RetrievalResult, reference: str, handler: CallbackHandler
-) -> tuple[float, float]:
-    sample = SingleTurnSample(
-        user_input=result.question,
-        retrieved_contexts=[c.data for c in result.chunks],
-        reference=reference,
-    )
-    # callbacks nest the judge LLM calls under the retrieval trace in Langfuse
-    precision, recall = await asyncio.gather(
-        precision_metric.single_turn_ascore(sample, callbacks=[handler]),
-        recall_metric.single_turn_ascore(sample, callbacks=[handler]),
-    )
-    return float(precision), float(recall)
 
 
 def mean(values: list[float]) -> float:
-    valid = [
-        v for v in values if not math.isnan(v)
-    ]  # NaN = RAGAS judge output was unparsable
+    valid = [v for v in values if not math.isnan(v)]  # NaN = RAGAS judge output was unparsable
     return sum(valid) / len(valid) if valid else float("nan")
 
 
 def main() -> int:
+    install_shims()  # must run before langfuse's LangChain handler and ragas are imported
+    from ragas.dataset_schema import SingleTurnSample
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.metrics import LLMContextPrecisionWithReference, LLMContextRecall
+
+    judge = LangchainLLMWrapper(get_chat_model())
+    precision_metric = LLMContextPrecisionWithReference(llm=judge)
+    recall_metric = LLMContextRecall(llm=judge)
+
+    async def ragas_scores(
+        result: RetrievalResult, reference: str, handler: BaseCallbackHandler
+    ) -> tuple[float, float]:
+        sample = SingleTurnSample(
+            user_input=result.question,
+            retrieved_contexts=[c.data for c in result.chunks],
+            reference=reference,
+        )
+        # callbacks nest the judge LLM calls under the retrieval trace in Langfuse
+        precision, recall = await asyncio.gather(
+            precision_metric.single_turn_ascore(sample, callbacks=[handler]),
+            recall_metric.single_turn_ascore(sample, callbacks=[handler]),
+        )
+        return float(precision), float(recall)
+
     langfuse = Langfuse()
     dataset = langfuse.get_dataset(DATASET)
     run_name = f"retrieval-{datetime.now():%Y%m%d-%H%M%S}"
-    print(
-        f"Experiment run '{run_name}' on dataset '{DATASET}' ({len(dataset.items)} items)"
-    )
+    print(f"Experiment run '{run_name}' on dataset '{DATASET}' ({len(dataset.items)} items)")
 
     all_scores: list[Scores] = []
     # One loop for all items: the judge's async HTTP client is bound to the loop it first runs on.
@@ -113,9 +100,7 @@ def main() -> int:
         langfuse_context.flush()
 
         handler = langfuse.trace(id=trace_id).get_langchain_handler()
-        precision, recall = loop.run_until_complete(
-            ragas_scores(result, expected.reference, handler)
-        )
+        precision, recall = loop.run_until_complete(ragas_scores(result, expected.reference, handler))
         handler.flush()
 
         scores = Scores(

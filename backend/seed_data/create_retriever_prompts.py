@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from langfuse import Langfuse
 from pydantic import BaseModel, ConfigDict
 
+from shared.prompts import PromptName
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -17,11 +19,12 @@ class ChatPrompt(BaseModel):
 
 PROMPTS = {
     # used by graphs/retriever/retriever.py; variable: {{question}}
-    "retriever_query_rewrite": ChatPrompt(
+    PromptName.RETRIEVER_QUERY_REWRITE: ChatPrompt(
         system=textwrap.dedent(
             """
             You prepare questions for semantic search over a vector index of SEC filings (10-K/10-Q) from several companies.
-            Rewrite the question as a self-contained search query. Keep the company name and any fiscal period or form type the question mentions, since the <<CUT_OFF_IN_PHOTO>>
+            Rewrite the question as a self-contained search query. Keep the company name and any fiscal period or form type the question mentions, since the search is not filtered by metadata.
+            Expand vague wording into the terms a filing would use.
             """
         ).strip(),
         user="{{question}}",
@@ -35,7 +38,7 @@ def main() -> None:
 
     for name, prompt in PROMPTS.items():
         langfuse.create_prompt(
-            name=name,
+            name=name.value,
             type="chat",
             prompt=[
                 {"role": "system", "content": prompt.system},
@@ -44,7 +47,7 @@ def main() -> None:
         )
 
     langfuse.flush()
-    print(f"Seeded {len(PROMPTS)} prompts in Langfuse: {', '.join(PROMPTS)}")
+    print(f"Seeded {len(PROMPTS)} prompts in Langfuse: {', '.join(name.value for name in PROMPTS)}")
 
 
 if __name__ == "__main__":

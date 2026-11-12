@@ -8,13 +8,12 @@ from pandas.errors import Pandas4Warning
 from graphs.market_research_agent.graph import build_graph
 from graphs.market_research_agent.output import format_fetch_plan, format_market_facts, market_results
 from graphs.market_research_agent.state import AgentState
-from shared.config import get_settings
 
 
 def main() -> None:
     warnings.filterwarnings("ignore", category=Pandas4Warning, module=r"yfinance\.")
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
-    graph = build_graph(get_settings())
+    graph = build_graph()
     print("Market Data agent ready. Type a question, or 'exit' to quit.\n")
     while True:
         question = input("Your question: ").strip()

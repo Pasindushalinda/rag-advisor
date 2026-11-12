@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from langfuse import Langfuse
 from pydantic import BaseModel, ConfigDict
 
+from shared.prompts import PromptName
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -19,7 +21,7 @@ class ChatPrompt(BaseModel):
 # history between the system and user messages, so each prompt must be exactly [system, user].
 PROMPTS = {
     # variable: {{question}}
-    "investor_advisor_retrieval_decision": ChatPrompt(
+    PromptName.INVESTOR_ADVISOR_RETRIEVAL_DECISION: ChatPrompt(
         system=textwrap.dedent(
             """
             You route questions for an investor advisor that can search a vector index of SEC filings (10-K/10-Q) from several companies.
@@ -36,7 +38,7 @@ PROMPTS = {
         user="{{question}}",
     ),
     # variables: {{question}}, {{sources}}
-    "investor_advisor_answer": ChatPrompt(
+    PromptName.INVESTOR_ADVISOR_ANSWER: ChatPrompt(
         system=textwrap.dedent(
             """
             You are an investor advisor helping users understand public companies from their SEC filings.
@@ -68,7 +70,7 @@ def main() -> None:
 
     for name, prompt in PROMPTS.items():
         langfuse.create_prompt(
-            name=name,
+            name=name.value,
             type="chat",
             prompt=[
                 {"role": "system", "content": prompt.system},
@@ -77,7 +79,7 @@ def main() -> None:
         )
 
     langfuse.flush()
-    print(f"Seeded {len(PROMPTS)} prompts in Langfuse: {', '.join(PROMPTS)}")
+    print(f"Seeded {len(PROMPTS)} prompts in Langfuse: {', '.join(name.value for name in PROMPTS)}")
 
 
 if __name__ == "__main__":
