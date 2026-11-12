@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     embedding_model_endpoint: str = ""
     embedding_model_api_key: SecretStr
     embedding_model_name: str = "embedding"
+    embedding_model_dimensions: int | None = 1536  # Gemini defaults to 3072; None = the model's own default size
     chat_model_endpoint: str = ""
     chat_model_api_key: SecretStr
     chat_model_name: str = "chat"

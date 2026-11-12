@@ -23,6 +23,7 @@ def get_embedding_model() -> OpenAIEmbeddings:
         model=cfg.embedding_model_name,
         openai_api_base=cfg.embedding_model_endpoint,
         openai_api_key=cfg.embedding_model_api_key,
+        dimensions=cfg.embedding_model_dimensions,
         check_embedding_ctx_length=False,  # send raw strings; the service does the truncation checks
         max_retries=6,  # the embedding deployment's call-rate limit returns 429s during bulk ingestion
     )
