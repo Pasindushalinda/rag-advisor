@@ -33,7 +33,7 @@ class State(BaseModel):
 
 @observe(capture_input=False, capture_output=False)
 def planner(state: State) -> State:
-    llm = get_chat_model().with_structured_output(Plan, method="json_schema")
+    llm = get_chat_model().with_structured_output(Plan)
 
     prompt = get_prompt(PromptName.PLANNER_PLAN_STEPS)
 

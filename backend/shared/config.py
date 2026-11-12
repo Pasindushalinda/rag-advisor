@@ -14,14 +14,14 @@ class Settings(BaseSettings):
         # Blank entries copied from .env.example mean "unset", not "empty string".
         env_ignore_empty=True, extra="allow")
 
-    # Model names are the provider's *deployment* names (infra/main.tf names them "embedding" and "chat").
+    # Embedding names are the provider's *deployment* names (infra/main.tf names it "embedding"). The chat model is Claude via the Anthropic API.
     embedding_model_endpoint: str = ""
     embedding_model_api_key: SecretStr
     embedding_model_name: str = "embedding"
     embedding_model_dimensions: int | None = 1536  # Gemini defaults to 3072; None = the model's own default size
-    chat_model_endpoint: str = ""
+    chat_model_endpoint: str = "https://api.anthropic.com"  # no /v1; the client adds it
     chat_model_api_key: SecretStr
-    chat_model_name: str = "chat"
+    chat_model_name: str = "claude-haiku-5-5"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_timeout: int = 60  # hosted instance cold-starts; the client default (5s) times out

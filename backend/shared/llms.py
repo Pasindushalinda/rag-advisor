@@ -1,18 +1,19 @@
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import OpenAIEmbeddings
 
 from shared.config import get_settings
 
 
-def get_chat_model(max_tokens: int | None = None) -> ChatOpenAI:
+def get_chat_model(max_tokens: int | None = None) -> ChatAnthropic:
     """The single place that configures the chat LLM; every caller must use this."""
     cfg = get_settings()
-    return ChatOpenAI(
-        model_name=cfg.chat_model_name,
-        openai_api_base=cfg.chat_model_endpoint,
-        openai_api_key=cfg.chat_model_api_key,
-        max_tokens=max_tokens,
+    return ChatAnthropic(
+        model=cfg.chat_model_name,
+        api_key=cfg.chat_model_api_key,
+        base_url=cfg.chat_model_endpoint,
+        max_tokens=max_tokens or 4096,  # Claude requires an explicit output limit
         max_retries=6,
-        request_timeout=120,
+        timeout=120,
     )
 
 

@@ -33,7 +33,7 @@ class State(BaseModel):
 @observe(capture_input=False, capture_output=False)
 def rewrite_query(state: State) -> State:
     prompt = get_prompt(PromptName.RETRIEVER_QUERY_REWRITE)
-    llm = get_chat_model().with_structured_output(QueryRewrite, method="json_schema")
+    llm = get_chat_model().with_structured_output(QueryRewrite)
     rewrite = QueryRewrite.model_validate(
         (prompt | llm).invoke({"question": state.question})
     )

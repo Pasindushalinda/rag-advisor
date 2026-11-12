@@ -81,7 +81,7 @@ def numbered(steps: list[str]) -> str:
 
 def main() -> int:
     settings = get_settings()
-    judge = get_chat_model().with_structured_output(Verdict, method="json_schema")
+    judge = get_chat_model().with_structured_output(Verdict)
     planner_graph = build_graph()
 
     langfuse = Langfuse()

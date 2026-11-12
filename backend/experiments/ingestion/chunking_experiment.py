@@ -47,7 +47,7 @@ settings = get_settings()
 JUDGE_MODEL = settings.chat_model_name
 langfuse = Langfuse()
 judge = get_chat_model(max_tokens=8192).with_structured_output(
-    Verdict, method="json_schema", include_raw=True
+    Verdict, include_raw=True
 )
 
 templates = {c: get_prompt(n) for c, n in PROMPT_NAMES.items()}
